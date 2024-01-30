@@ -8,13 +8,19 @@ output: html_document
 df <- read.csv("parking_tickets_one_percent2.csv")
 ```
 
+Part I. Cleaning the data and benchmarking
 
-Q. For each column, how many rows are NA? Write a relatively short command which calculates this. 
+Q1. How many tickets were issued in the data in 2017? How many tickets does that imply were issued in the full data in 2017? How many tickets are issued each year according to the ProPublica article? 
+
 ```{r}
-apply(is.na(df),2,sum)
+df %>%
+filter(issue_date >= as_datetime("2017-01-01 00:00:00")) %>%
+filter(issue_date < as_datetime("2018-01-01 00:00:00")) %>%
+nrow()
 ```
 
-In the whole dataset, what are the top 20 most frequent violation types? Make a bar graph to show the frequency of these ticket types. 
+Q2. In the whole dataset, what are the top 20 most frequent violation types? Make a bar graph to show the frequency of these ticket types. 
+
 ```{r}
 library(ggplot2)
 
@@ -30,7 +36,9 @@ labs(
 x = "Number of violatons",
 y = "Violation")
 ```
-Q. For how many tickets is unit missing?
+Part II. The data also contains information telling us what unit of city government issued each ticket, but this is only added as a code. We need to join with another dataset to get the actual names of the units. 
+
+Q1. For how many tickets is unit missing?
 ```{r}
 df %>%
 select(unit) %>%
@@ -38,10 +46,9 @@ is.na() %>%
 sum()
 ```
 
-Q. Read in unit_key.csv. How many units are there?
+Q2. Read in unit_key.csv. How many units are there?
 ```{r}
 library(readr)
-
 df_units <- read_csv("unit_key-1.csv", skip = 2)
 ```
 
@@ -54,7 +61,7 @@ unique() %>%
 nrow()
 ```
 
-Q. Use joins to answer the following questions. Use unit as the key column to do the joins.
+Q3. Use joins to answer the following questions. Use unit as the key column to do the joins.
 - How many rows in the tickets data have a match in the unit table?
 - How many rows are unmatched?
 - How many rows in the unit table have a match in the tickets data?
@@ -69,7 +76,7 @@ nrow(anti_join(df_units, df, by = "unit"))
 
 Interpretation: All of the rows in tickets data have a match in the unit table and 0 are unmatched. 139 rows in the unit table have a match in the tickets data. 246 do not.
 
-Q. What is the name of the department which issues more tickets – Department of Finance or Chicago Police? Within Chicago Police, what are the top 5 department descriptions that are issuing the most tickets? Be careful what you group by here and avoid columns with ambiguities.
+Q4. What is the name of the department which issues more tickets – Department of Finance or Chicago Police? Within Chicago Police, what are the top 5 department descriptions that are issuing the most tickets? Be careful what you group by here and avoid columns with ambiguities.
 
 ```{r}
 library(tidyr)
@@ -95,7 +102,9 @@ top_n(5, n) %>%
 arrange(desc(n))
 ```
 
-Q. Using library(tidycensus), download 2014 data from the American Community Survey (ACS) by ZIP for Chicago with total population, total black population and median household income. (Hint: the “ZCTA” geography aggregation would return all zip codes; Use the load_variable function to help find the codes for the necessary variables, or online, eg: https://api.census.gov/data/2014/acs /acs5/groups/. the chi_zips.csv contains all the zipcodes needed)
+Part III - Replicate the key finding in the Propublica by ranking ZIPs by the number of unpaid tickets (i.e. ticket with no payment) per resident by ZIP in five steps
+
+Q1. Using library(tidycensus), download 2014 data from the American Community Survey (ACS) by ZIP for Chicago with total population, total black population and median household income. (Hint: the “ZCTA” geography aggregation would return all zip codes; Use the load_variable function to help find the codes for the necessary variables, or online, eg: https://api.census.gov/data/2014/acs /acs5/groups/. the chi_zips.csv contains all the zipcodes needed)
 
 ```{r}
 library(tidycensus)
@@ -128,7 +137,7 @@ mutate(share_black = population_black/population)
 ```{r}
 chicago_df
 ```
-Q. Calculate the sum of the unpaid counts of the ticket data by zip code.
+Q2. Calculate the sum of the unpaid counts of the ticket data by zip code.
 
 ```{r}
 library(stringr)
@@ -139,7 +148,7 @@ group_by(GEOID) %>%
 summarise(unpaid = sum(total_payments == 0))
 ```
 
-Q. Join this with the data from you got from the previous step (remember to clean the tickets data to match the census data format!)
+Q3. Join this with the data from you got from the previous step (remember to clean the tickets data to match the census data format!)
 ```{r}
 df <- df %>%
 mutate(GEOID = str_extract(zipcode, "[0-9]{5}")) %>%
@@ -147,7 +156,7 @@ left_join(chicago_df, by = "GEOID")
 df
 ```
 
-Q. Replicate the key finding in the Propublica by ranking ZIPs by the number of unpaid tickets per resident by ZIP. What are the names of the three neighborhoods with the most unpaid tickets?
+Q4. Replicate the key finding in the Propublica by ranking ZIPs by the number of unpaid tickets per resident by ZIP. What are the names of the three neighborhoods with the most unpaid tickets?
 ```{r}
 df_final <- df %>%
 mutate(GEOID = str_extract(zipcode, "[6][0-9]{4}")) %>%
@@ -159,15 +168,12 @@ mutate(ratio_unpaid = sum_unpaid/population)
 df_final %>%
 top_n(3, ratio_unpaid)
 ```
+Q5. Make #3 into a map
 
 ```{r}
 library(sf)
 library(tigris)
 il_zctas <- zctas(starts_with = "606", class = "sf")
-```
-
-
-```{r}
 df_sf <- left_join(il_zctas, df_final, join_by("GEOID20" == "GEOID"))
 ggplot(data = df_sf) +
 geom_sf(aes(fill = ratio_unpaid)) +
@@ -175,7 +181,9 @@ scale_fill_continuous(low="white", high = "blue") +
 theme_minimal()
 ```
 
-Q.  Most violation types double in price if unpaid.Does this hold for all violations? If not, find all violations with at least 100 citations that do not double. How much does each ticket
+Part IV - Understanding the structure of the data
+
+Q1.  Most violation types double in price if unpaid.Does this hold for all violations? If not, find all violations with at least 100 citations that do not double. How much does each ticket
 increase if unpaid?
 
 ```{r}
@@ -191,7 +199,7 @@ mutate(ratio = fine_level2_amount_mean/fine_level1_amount_mean) %>%
 filter(ratio != 2) %>%
 arrange(desc(ratio))
 ```
-Are any violation descriptions associated with multiple violation codes? If so, which descriptions have multiple associated codes and how many tickets are there in each description-code pair?
+Q2. Are any violation descriptions associated with multiple violation codes? If so, which descriptions have multiple associated codes and how many tickets are there in each description-code pair?
 
 ```{r}
 df %>%
@@ -200,7 +208,7 @@ group_by(violation_description) %>%
 filter(n()>1) %>%
 ungroup()
 ```
-Q. Are any violation codes associated with multiple violation descriptions? If so, which codes have multiple associated descriptions and how many tickets are there in each description-code pair?
+Q3. Are any violation codes associated with multiple violation descriptions? If so, which codes have multiple associated descriptions and how many tickets are there in each description-code pair?
 ```{r}
 df %>%
 count(violation_description, violation_code) %>%
@@ -208,12 +216,28 @@ group_by(violation_code) %>%
 filter(n()>1) %>%
 ungroup()
 ```
+Q4. Review the 50 most common violation descriptions. Do any of them seem to be redundant? If so, can you find a case where what looks like a redundancy actually reflects the creation of a new violation code?
+
 ```{r}
 df %>%
 count(violation_description) %>%
 top_n(50, n) %>%
 arrange(violation_description)
+```
+There are a few matching/redundant ones -
+- "BLOCK ACCESS/ALLEY/DRIVEWAY/FIRELANE"
+- "PARK ALLEY"
+- "PARK OR BLOCK ALLEY"
+- "SPECIAL EVENTS RESTRICTION"
+- "STREET CLEANING"
+- "STREET CLEANING OR SPECIAL EVENT"
+- "EXPIRED PLATE OR TEMPORARY REGISTRATION"
+- "EXPIRED PLATES OR TEMPORARY REGISTRATION"
+- "EXPIRED METER OR OVERSTAY"
+- "EXPIRED METER CENTRAL BUSINESS DISTRICT"
+- "EXP. METER NON-CENTRAL BUSINESS DISTRICT"
 
+```{r}
 df %>%
 filter(violation_description %in% c(
 "EXPIRED METER OR OVERSTAY",
@@ -224,7 +248,9 @@ count(year(issue_date), violation_code, violation_description)
 ```
 This could be a case of a specific code being the preferred option now but between 2008 and 2011, it was primarily the generic code being used.
 
-Q. What was the old violation code and what is the new violation code? How much was the cost of an initial offense under each code? (You can ignore the ticket for a missing city sticker on vehicles over 16,000 pounds.)
+Part V - Revenue increase from 'Missing City Sticker'
+
+Q1. What was the old violation code and what is the new violation code? How much was the cost of an initial offense under each code? (You can ignore the ticket for a missing city sticker on vehicles over 16,000 pounds.)
 
 ```{r}
 df %>% filter(violation_description %in% c(
@@ -232,6 +258,8 @@ df %>% filter(violation_description %in% c(
 group_by(violation_description, violation_code) %>%
 summarise(n = n())
 ```
+Answer: 0964125, 0964125B
+
 Using these 3 codes, the output gives us the cost of each code.
 ```{r}
 df %>%
@@ -239,7 +267,7 @@ filter(violation_code %in% c("0964125B","0964125","0976170")) %>%
 group_by(violation_code) %>%
 summarise(mean_fine = mean(fine_level1_amount))
 ```
-Combining the two codes, how have the number of missing sticker tickets evolved over time?
+Q2. Combining the two codes, how have the number of missing sticker tickets evolved over time?
 ```{r}
 df %>%
 filter(violation_code %in% c("0964125B","0964125","0976170")) %>%
@@ -248,7 +276,7 @@ summarise(mean_fine = mean(fine_level1_amount), n = n()) %>%
 ggplot() +
 geom_col(aes(x=`year(issue_date)`, y = n, fill = mean_fine))
 ```
-Using the dates on when tickets were issued, when did the price increase occur?
+Q3. Using the dates on when tickets were issued, when did the price increase occur?
 ```{r}
 df %>%
 filter(violation_code == "0964125") %>%
@@ -262,9 +290,7 @@ summarise(first_new_ticket = as.Date(min(issue_date)),
 cost = mean(fine_level1_amount))
 ```
 
-The City Clerk said the price increase would raise revenue by $16 million per year.
-
-Using only the data available in the calendar year prior to the increase, how much of a revenue increase should she have projected? Assume that the number of tickets of this type issued afterward would be constant and you can assume that there are no late fees or collection fees, so a ticket is either paid at its face value or is never paid.
+Q4. The City Clerk said the price increase would raise revenue by $16 million per year. Using only the data available in the calendar year prior to the increase, how much of a revenue increase should she have projected? Assume that the number of tickets of this type issued afterward would be constant and you can assume that there are no late fees or collection fees, so a ticket is either paid at its face value or is never paid.
 ```{r}
 df %>%
 filter(year(issue_date) == 2011) %>%
@@ -277,7 +303,8 @@ These are the tickets paid.
 1042 x 100 (since we have a 1% sample) x 0.54 x 80 = $4.5 million
 
 
-What happened to repayment rates on this type of ticket in the calendar year after the price increase went into effect? Suppose for a moment that the number of tickets issued was unchanged after the price increase. Taking into account the change in repayment rates, what would the change in revenue have been?
+Q5. What happened to repayment rates on this type of ticket in the calendar year after the price increase went into effect? Suppose for a moment that the number of tickets issued was unchanged after the price increase. Taking into account the change in repayment rates, what would the change in revenue have been?
+
 ```{r}
 df %>%
 filter(year(issue_date) == 2013) %>%
@@ -286,7 +313,7 @@ group_by(ticket_queue == "Paid") %>%
 summarise(n = n()) %>%
 mutate(share = n/sum(n))
 ```
-1. Make a plot with the repayment rates on no city sticker tickets and a vertical line at when the new policy was introduced. Interpret.
+Q6. Make a plot with the repayment rates on no city sticker tickets and a vertical line at when the new policy was introduced.
 
 ```{r}
 df %>%
@@ -304,7 +331,7 @@ title = "Repayment rates for missing city sticker tickets") +
 geom_vline(xintercept = 2012.2, color = "blue")
 ```
 
-In that same year before this city sticker price increase went into force, suppose that the City Clerk were committed to getting revenue from tickets–which we are not advocating. What ticket types would you as an analyst have recommended she increase and why? Name up to three ticket types. Assume there is no behavioral response (ie. people continue to commit violations at the same rate and repay at the same rate), but consider both ticket numbers and repayment rates.
+Q7. In that same year before this city sticker price increase went into force, suppose that the City Clerk were committed to getting revenue from tickets–which we are not advocating. What ticket types would you as an analyst have recommended she increase and why? Name up to three ticket types. Assume there is no behavioral response (ie. people continue to commit violations at the same rate and repay at the same rate), but consider both ticket numbers and repayment rates.
 
 ```{r}
 df %>%
